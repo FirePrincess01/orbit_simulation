@@ -11,6 +11,8 @@ use cgmath::prelude::*;
 use wasm_bindgen::prelude::*;
 
 mod texture;
+mod cube;
+mod sphere_sim;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
