@@ -18,7 +18,7 @@ mod sphere_sim;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
     position: [f32; 3],
-    color: [f32; 3],
+    // color: [f32; 3],
 }
 
 impl Vertex {
@@ -32,8 +32,28 @@ impl Vertex {
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                // wgpu::VertexAttribute {
+                //     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                //     shader_location: 1,
+                //     format: wgpu::VertexFormat::Float32x3
+                // }
+            ]
+        }
+    }
+}
+
+struct Color {
+    color: [f32; 3],
+}
+
+impl Color {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Color>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    offset: 0,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3
                 }
@@ -42,19 +62,19 @@ impl Vertex {
     }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
-];
+// const VERTICES: &[Vertex] = &[
+//     Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+//     Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+//     Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+//     Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+//     Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+// ];
 
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+// const INDICES: &[u16] = &[
+//     0, 1, 4,
+//     1, 2, 4,
+//     2, 3, 4,
+// ];
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -257,7 +277,16 @@ impl Instance {
     }
 }
 
+const N: usize = 15;
+
 struct State {
+    // simulation
+    sphere: sphere_sim::Sphere<N>,
+    sphere_vertices: Vec<f32>,
+    sphere_indices: Vec<u16>,
+    sphere_colors: Vec<f32>,
+
+    // renderer
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -266,6 +295,7 @@ struct State {
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    color_buffer: wgpu::Buffer,
     _num_vertices: u32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
@@ -282,6 +312,15 @@ struct State {
 impl State {
     // Creating some of the wgpu types requires async code
     async fn new(window: Window) -> Self {
+
+        // simulation
+        let sphere: sphere_sim::Sphere<N> = sphere_sim::Sphere::new();
+        let (sphere_vertices, sphere_indices) = sphere.get_vertices();
+        let mut sphere_colors = sphere.get_colors();
+
+
+
+        // renderer
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -383,6 +422,7 @@ impl State {
                 entry_point: "vs_main", 
                 buffers: &[
                     Vertex::desc(),
+                    Color::desc(),
                     InstanceRaw::desc(),
                 ],
             },
@@ -426,23 +466,31 @@ impl State {
         let vertex_buffer = device.create_buffer_init(
             &util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
+                contents: bytemuck::cast_slice(sphere_vertices.as_slice()),
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
 
-        let _num_vertices = VERTICES.len() as u32;
+        let color_buffer = device.create_buffer_init(
+            &util::BufferInitDescriptor {
+                label: Some("Color Buffer"),
+                contents: bytemuck::cast_slice(sphere_colors.as_slice()),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let _num_vertices = sphere_vertices.len() as u32;
 
         // Indices
         let index_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
+                contents: bytemuck::cast_slice(sphere_indices.as_slice()),
                 usage: wgpu::BufferUsages::INDEX,
             }
         );
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = sphere_indices.len() as u32;
 
         // Camera
         let camera = Camera {
@@ -521,6 +569,11 @@ impl State {
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self {
+            sphere,
+            sphere_vertices,
+            sphere_indices,
+            sphere_colors,
+
             window,
             surface,
             device,
@@ -529,6 +582,7 @@ impl State {
             size,
             render_pipeline,
             vertex_buffer,
+            color_buffer,
             _num_vertices,
             index_buffer,
             num_indices,
@@ -607,10 +661,12 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.color_buffer.slice(..));
+            render_pass.set_vertex_buffer(2, self.instance_buffer.slice(..));
 
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
+            //render_pass.draw_indexed(0..3, 0, 0..self.instances.len() as u32);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -11,63 +11,56 @@
 //
 //
 
-use std::f32::consts::PI;
-
-use cgmath::InnerSpace;
+use std::{f32::consts::PI, time::Duration};
+use colors_transform::Color;
+use glam::Vec3;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Quad {
-    a: cgmath::Point3<f32>,
-    b: cgmath::Point3<f32>,
-    c: cgmath::Point3<f32>,
-    d: cgmath::Point3<f32>,
-    normal: cgmath::Vector3<f32>,
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
+    d: Vec3,
+    centroid: Vec3, // geometric center
+    normal: Vec3,
     area: f32,
-    heat: u8,
+    heat: f32,
 }
 
 impl Quad {
-    fn new(a: cgmath::Point3<f32>, 
-        b: cgmath::Point3<f32>, 
-        c: cgmath::Point3<f32>, 
-        d: cgmath::Point3<f32>) -> Self 
+    fn new(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> Self 
     {
-        let normal = (c - b).cross(a - b).normalize();
-        let normal2 = (c - d).cross(a - d).normalize();
-
-        assert!(normal == normal2, "make sure it is really a quad");
-
-        let area = (c - b).cross(a - b).magnitude() / 2.0 + (c - d).cross(a - d).magnitude()  / 2.0;
+        let centroid = (a + b + c + d) / 4.0;
+        let normal = centroid.normalize();
+        let area = (c - b).cross(a - b).length() / 2.0 + (c - d).cross(a - d).length() / 2.0;
 
         Self{
             a,
             b, 
             c, 
             d, 
+            centroid,
             normal, 
             area,
-            heat: 0,
+            heat: 0.0,
         }
     }
 }
 
-const N: usize = 10;
-pub struct Sphere {
+pub struct Sphere<const N: usize> {
     quads: [[Quad; N]; N]
 }
 
-impl Sphere {
-    fn new() -> Self {
+impl<const N: usize> Sphere<N> {
+    pub fn new() -> Self {
         let r : f32 = 0.5;
 
-        const ZERO : cgmath::Point3<f32> = cgmath::Point3::new(0.0, 0.0, 0.0);
-
         // create points
-        let mut points: [[cgmath::Point3<f32>; N]; N] = [[ZERO; N]; N];
+        let mut points: Vec<[Vec3; N]> = vec![[Vec3::ZERO; N]; N+1];
 
-        for j in 0..N {
+        for j in 0..N+1 {
 
-            let beta = (PI / (N - 1) as f32) * j as f32; 
+            let beta = (PI / (N) as f32) * j as f32; 
             
             let z = f32::cos(beta) * r;
             let sub_r = (f32::sin(beta) * r).abs();
@@ -79,14 +72,14 @@ impl Sphere {
                 let x = f32::cos(alpha) * sub_r;
                 let y = f32::sin(alpha) * sub_r;
 
-                points[j][i] = cgmath::Point3{x, y, z};
+                points[j][i] = Vec3{x, y, z};
             }
         }
 
         // create quads
-        let mut quads: [[Quad; N]; N] = [[Quad::new(ZERO, ZERO, ZERO, ZERO); N]; N];
+        let mut quads: [[Quad; N]; N] = [[Quad::new(Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO); N]; N];
 
-        for j in 0..N-1 {
+        for j in 0..N {
             for i in 0..N {
                 let a = points[j+1][i];
                 let b = points[j+1][(i+1)%N];
@@ -98,5 +91,114 @@ impl Sphere {
         }
 
         Self { quads }
+    }
+
+    pub fn get_vertices(&self) -> (Vec<f32>, Vec<u16>)
+    {
+        let vertices_size: usize = N*N*12;
+        let indices_size: usize = N*N*6;
+
+        let mut vertices: Vec<f32> = vec![0.0; vertices_size];
+        let mut indices: Vec<u16> = vec![0; indices_size];
+
+        let mut k = 0;
+        let mut l = 0;
+        for j in 0..N {
+            for i in 0..N {
+                let quad = &self.quads[j][i]; 
+
+                // A
+                vertices[k+0] = quad.a.x;
+                vertices[k+1] = quad.a.y;
+                vertices[k+2] = quad.a.z;
+
+                // B
+                vertices[k+3] = quad.b.x;
+                vertices[k+4] = quad.b.y;
+                vertices[k+5] = quad.b.z;
+
+                // C
+                vertices[k+6] = quad.c.x;
+                vertices[k+7] = quad.c.y;
+                vertices[k+8] = quad.c.z;
+
+                // D
+                vertices[k+9] = quad.d.x;
+                vertices[k+10] = quad.d.y;
+                vertices[k+11] = quad.d.z;
+
+                // A, B, C,
+                indices[l+0] = (k/3 + 0) as u16;
+                indices[l+1] = (k/3 + 1) as u16;
+                indices[l+2] = (k/3 + 2) as u16;
+
+                // C, D, A,
+                indices[l+3] = (k/3 + 2) as u16;
+                indices[l+4] = (k/3 + 3) as u16;
+                indices[l+5] = (k/3 + 0) as u16;
+
+                k += 12;
+                l += 6;
+            }
+        }
+
+        (vertices, indices)
+    }
+
+    pub fn get_colors(&self) -> Vec<f32>
+    {
+        let vertices_size: usize = N*N*12;
+        let mut colors: Vec<f32> = vec![0.0; vertices_size];
+
+        let mut hue = 0.0;
+        let sat = 50.0;
+        let lightness = 50.0;
+
+        let mut i = 0;
+        while(i < vertices_size)
+        {
+            let hex_color = colors_transform::Hsl::from(hue, sat, lightness).to_rgb();
+            hue += 360.0 / ((vertices_size/12) as f32);
+
+            colors[i] = hex_color.get_red() / 255.0;
+            colors[i+1] = hex_color.get_green() / 255.0;
+            colors[i+2] = hex_color.get_blue() / 255.0;
+
+            colors[i+3] = hex_color.get_red() / 255.0;
+            colors[i+4] = hex_color.get_green() / 255.0;
+            colors[i+5] = hex_color.get_blue() / 255.0;
+
+            colors[i+6] = hex_color.get_red() / 255.0;
+            colors[i+7] = hex_color.get_green() / 255.0;
+            colors[i+8] = hex_color.get_blue() / 255.0;
+
+            colors[i+9] = hex_color.get_red() / 255.0;
+            colors[i+10] = hex_color.get_green() / 255.0;
+            colors[i+11] = hex_color.get_blue() / 255.0;
+
+            i += 12;
+        }
+
+        colors
+    }
+
+    fn update(&mut self, light: f32, dt: Duration) 
+    {
+        let dt = dt.as_secs_f32();
+        let light_intensity: f32 = 1.0;
+        let radiation_factor: f32 = 0.1;
+
+        for j in 0..N {
+            for i in 0..N {
+                let quad = &self.quads[j][i]; 
+
+                let light_dir = (light - quad.centroid).normalize();
+
+                let dheat = light_dir.dot(quad.normal).min(0.0) * light_intensity * dt - (quad.heat * radiation_factor) * dt;
+
+                let quad = &mut self.quads[j][i]; 
+                quad.heat = (quad.heat + dheat).min(0.0); 
+            }
+        }
     }
 }
