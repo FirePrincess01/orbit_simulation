@@ -12,7 +12,6 @@
 //
 
 use std::{f32::consts::PI, time::Duration};
-use colors_transform::Color;
 use glam::Vec3;
 
 #[derive(Copy, Clone, Debug)]
@@ -150,31 +149,28 @@ impl<const N: usize> Sphere<N> {
         let vertices_size: usize = N*N*12;
         let mut colors: Vec<f32> = vec![0.0; vertices_size];
 
-        let mut hue = 0.0;
-        let sat = 50.0;
-        let lightness = 50.0;
+        let gradient = colorous::MAGMA;
 
         let mut i = 0;
         while(i < vertices_size)
         {
-            let hex_color = colors_transform::Hsl::from(hue, sat, lightness).to_rgb();
-            hue += 360.0 / ((vertices_size/12) as f32);
+            let color = gradient.eval_rational(i, vertices_size);
 
-            colors[i] = hex_color.get_red() / 255.0;
-            colors[i+1] = hex_color.get_green() / 255.0;
-            colors[i+2] = hex_color.get_blue() / 255.0;
+            colors[i] =   color.r as f32 / 255.0;
+            colors[i+1] = color.g as f32 / 255.0;
+            colors[i+2] = color.b as f32 / 255.0;
 
-            colors[i+3] = hex_color.get_red() / 255.0;
-            colors[i+4] = hex_color.get_green() / 255.0;
-            colors[i+5] = hex_color.get_blue() / 255.0;
+            colors[i+3] = color.r as f32 / 255.0;
+            colors[i+4] = color.g as f32 / 255.0;
+            colors[i+5] = color.b as f32 / 255.0;
 
-            colors[i+6] = hex_color.get_red() / 255.0;
-            colors[i+7] = hex_color.get_green() / 255.0;
-            colors[i+8] = hex_color.get_blue() / 255.0;
+            colors[i+6] = color.r as f32 / 255.0;
+            colors[i+7] = color.g as f32 / 255.0;
+            colors[i+8] = color.b as f32 / 255.0;
 
-            colors[i+9] = hex_color.get_red() / 255.0;
-            colors[i+10] = hex_color.get_green() / 255.0;
-            colors[i+11] = hex_color.get_blue() / 255.0;
+            colors[i+9] =  color.r as f32 / 255.0;
+            colors[i+10] = color.g as f32 / 255.0;
+            colors[i+11] = color.b as f32 / 255.0;
 
             i += 12;
         }
