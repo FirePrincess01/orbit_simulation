@@ -47,7 +47,9 @@ impl Quad {
 }
 
 pub struct Sphere<const N: usize> {
-    quads: [[Quad; N]; N]
+    quads: [[Quad; N]; N],
+
+    light: Vec3,
 }
 
 impl<const N: usize> Sphere<N> {
@@ -87,9 +89,12 @@ impl<const N: usize> Sphere<N> {
 
                 quads[j][i] = Quad::new(a, b, c, d);
             }
-        }
+        }  
 
-        Self { quads }
+        // Light
+        let light = Vec3::new(100.0, 0.0, 25.0);
+
+        Self { quads, light }
     }
 
     pub fn get_vertices(&self) -> (Vec<f32>, Vec<u16>)
@@ -149,52 +154,96 @@ impl<const N: usize> Sphere<N> {
         let vertices_size: usize = N*N*12;
         let mut colors: Vec<f32> = vec![0.0; vertices_size];
 
-        let gradient = colorous::MAGMA;
+        let gradient = colorous::TURBO;
+        // let gradient = colorous::MAGMA;
 
-        let mut i = 0;
-        while(i < vertices_size)
-        {
-            let color = gradient.eval_rational(i, vertices_size);
+        let mut k = 0;
+        for j in 0..N {
+            for i in 0..N {
+                let quad = &self.quads[j][i]; 
 
-            colors[i] =   color.r as f32 / 255.0;
-            colors[i+1] = color.g as f32 / 255.0;
-            colors[i+2] = color.b as f32 / 255.0;
+                let color = gradient.eval_rational(quad.heat.min(1000.0) as usize, 1000);
 
-            colors[i+3] = color.r as f32 / 255.0;
-            colors[i+4] = color.g as f32 / 255.0;
-            colors[i+5] = color.b as f32 / 255.0;
+                colors[k] =   color.r as f32 / 255.0;
+                colors[k+1] = color.g as f32 / 255.0;
+                colors[k+2] = color.b as f32 / 255.0;
 
-            colors[i+6] = color.r as f32 / 255.0;
-            colors[i+7] = color.g as f32 / 255.0;
-            colors[i+8] = color.b as f32 / 255.0;
+                colors[k+3] = color.r as f32 / 255.0;
+                colors[k+4] = color.g as f32 / 255.0;
+                colors[k+5] = color.b as f32 / 255.0;
 
-            colors[i+9] =  color.r as f32 / 255.0;
-            colors[i+10] = color.g as f32 / 255.0;
-            colors[i+11] = color.b as f32 / 255.0;
+                colors[k+6] = color.r as f32 / 255.0;
+                colors[k+7] = color.g as f32 / 255.0;
+                colors[k+8] = color.b as f32 / 255.0;
 
-            i += 12;
+                colors[k+9] =  color.r as f32 / 255.0;
+                colors[k+10] = color.g as f32 / 255.0;
+                colors[k+11] = color.b as f32 / 255.0;
+
+                k += 12;
+
+            }
         }
+
+        // let mut i = 0;
+        // while(i < vertices_size)
+        // {
+        //     let color = gradient.eval_rational(i, vertices_size);
+
+        //     colors[i] =   color.r as f32 / 255.0;
+        //     colors[i+1] = color.g as f32 / 255.0;
+        //     colors[i+2] = color.b as f32 / 255.0;
+
+        //     colors[i+3] = color.r as f32 / 255.0;
+        //     colors[i+4] = color.g as f32 / 255.0;
+        //     colors[i+5] = color.b as f32 / 255.0;
+
+        //     colors[i+6] = color.r as f32 / 255.0;
+        //     colors[i+7] = color.g as f32 / 255.0;
+        //     colors[i+8] = color.b as f32 / 255.0;
+
+        //     colors[i+9] =  color.r as f32 / 255.0;
+        //     colors[i+10] = color.g as f32 / 255.0;
+        //     colors[i+11] = color.b as f32 / 255.0;
+
+        //     i += 12;
+        // }
 
         colors
     }
 
-    fn update(&mut self, light: f32, dt: Duration) 
+    pub fn update(&mut self, t: Duration, dt: Duration) 
     {
+        let t = t.as_secs_f64();
         let dt = dt.as_secs_f32();
-        let light_intensity: f32 = 1.0;
+        
+        // light
+        let rotation_speed = 1.0;
+        let radius = 100.0;
+        self.light.x = radius * f64::cos( rotation_speed * t) as f32;
+        self.light.y = radius * f64::sin( rotation_speed * t) as f32;
+        
+        // sphere
+        let light_intensity: f32 = 1000.0;
         let radiation_factor: f32 = 0.1;
 
         for j in 0..N {
             for i in 0..N {
                 let quad = &self.quads[j][i]; 
 
-                let light_dir = (light - quad.centroid).normalize();
+                let light_dir = (self.light - quad.centroid).normalize();
 
-                let dheat = light_dir.dot(quad.normal).min(0.0) * light_intensity * dt - (quad.heat * radiation_factor) * dt;
+                // let dheat = light_dir.dot(quad.normal).min(0.0) * light_intensity * dt - (quad.heat * radiation_factor) * dt;
 
                 let quad = &mut self.quads[j][i]; 
-                quad.heat = (quad.heat + dheat).min(0.0); 
+                // quad.heat = (quad.heat + dheat).min(0.0); 
+
+                quad.heat = light_dir.dot(quad.normal).max(0.0) * light_intensity;
+
+                let k = 0;
             }
         }
+
+
     }
 }

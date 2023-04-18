@@ -277,7 +277,7 @@ impl Instance {
     }
 }
 
-const N: usize = 15;
+const N: usize = 30;
 
 struct State {
     // simulation
@@ -475,7 +475,7 @@ impl State {
             &util::BufferInitDescriptor {
                 label: Some("Color Buffer"),
                 contents: bytemuck::cast_slice(sphere_colors.as_slice()),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }
         );
 
@@ -496,7 +496,7 @@ impl State {
         let camera = Camera {
             // position the camera one unit up and 2 units back
             // +z is out f the screen
-            eye: (0.0, 1.0, 2.0). into(),
+            eye: (0.0, 5.0, 10.0). into(),
             // have it look at the oririn
             target: (0.0, 0.0, 0.0).into(),
             // which way is "up"
@@ -616,7 +616,14 @@ impl State {
         self.camera_controller.process_events(event)
     }
 
-    fn update(&mut self) {
+    fn update(&mut self, t: std::time::Duration, dt: std::time::Duration) {
+
+        // sphere
+        self.sphere.update(t, dt);
+        self.sphere_colors = self.sphere.get_colors();
+        self.queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&self.sphere_colors.as_slice()));
+
+        // camera
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
@@ -717,6 +724,8 @@ pub async fn run() {
     // Window setup...
 
     let mut state = State::new(window).await;
+    let mut last_render_time = instant::Instant::now();
+    let start_time = last_render_time;
 
 
 
@@ -747,7 +756,12 @@ pub async fn run() {
             } 
             },
             Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.update();
+                let now = instant::Instant::now();
+                let time_since_start = now - start_time;
+                let dt = now - last_render_time;
+                last_render_time = now;
+                
+                state.update(time_since_start, dt);
                 match state.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
