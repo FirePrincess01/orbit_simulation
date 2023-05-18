@@ -1,4 +1,5 @@
 
+use solar_system::SolarSystem;
 use wgpu::util::{DeviceExt, self};
 use winit::{
     event::*,
@@ -13,6 +14,8 @@ use wasm_bindgen::prelude::*;
 mod texture;
 mod cube;
 mod sphere_sim;
+mod solar_system;
+use glam;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -219,9 +222,10 @@ impl CameraController {
     }
 }
 
+#[derive(Copy, Clone)]
 struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
+    position: glam::Vec3,
+    rotation: glam::Quat,
 }
 
 #[repr(C)]
@@ -271,8 +275,11 @@ impl InstanceRaw {
 
 impl Instance {
     fn to_raw(&self) -> InstanceRaw {
+        // InstanceRaw { 
+        //     model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
+        // }
         InstanceRaw { 
-            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
+            model: (glam::Mat4::from_translation(self.position) * glam::Mat4::from_quat(self.rotation)).to_cols_array_2d(),
         }
     }
 }
@@ -285,6 +292,12 @@ struct State {
     sphere_vertices: Vec<f32>,
     sphere_indices: Vec<u16>,
     sphere_colors: Vec<f32>,
+    sphere_colors_sun: Vec<f32>,
+
+    planet_instance: Instance,
+    sun_instance: Instance,
+
+    solar_system: SolarSystem,
 
     // renderer
     surface: wgpu::Surface,
@@ -296,6 +309,9 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     color_buffer: wgpu::Buffer,
+    color_buffer_sun: wgpu::Buffer,
+
+
     _num_vertices: u32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
@@ -316,7 +332,30 @@ impl State {
         // simulation
         let sphere: sphere_sim::Sphere<N> = sphere_sim::Sphere::new();
         let (sphere_vertices, sphere_indices) = sphere.get_vertices();
-        let mut sphere_colors = sphere.get_colors();
+        let sphere_colors = sphere.get_colors();
+
+        let mut sphere_colors_sun = sphere.get_colors();
+        for elem in &mut sphere_colors_sun {
+            *elem = 1.0;
+        }
+
+        // solar system
+        let sun_instance = Instance {
+            position: glam::Vec3::ZERO,
+            rotation: glam::Quat::IDENTITY,
+        };
+        let planet_instance = Instance {
+            position: glam::Vec3::new(2.0, 0.0, 0.0),
+            rotation: glam::Quat::IDENTITY,
+        };
+
+        let solar_system = SolarSystem::new(
+            sun_instance.position, 
+            planet_instance.position,
+            glam::Vec3::new(0.0, 0.0, 1.0),
+            0.5,
+            10.0,
+        );
 
 
 
@@ -479,6 +518,14 @@ impl State {
             }
         );
 
+        let color_buffer_sun = device.create_buffer_init(
+            &util::BufferInitDescriptor {
+                label: Some("Color Buffer Sun"),
+                contents: bytemuck::cast_slice(sphere_colors_sun.as_slice()),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+
         let _num_vertices = sphere_vertices.len() as u32;
 
         // Indices
@@ -496,7 +543,7 @@ impl State {
         let camera = Camera {
             // position the camera one unit up and 2 units back
             // +z is out f the screen
-            eye: (0.0, 5.0, 10.0). into(),
+            eye: (0.0, 0.0, 15.0). into(),
             // have it look at the oririn
             target: (0.0, 0.0, 0.0).into(),
             // which way is "up"
@@ -533,36 +580,39 @@ impl State {
         let camera_controller = CameraController::new(0.2);
 
         // Instances
-        const NUM_INSTANCES_PER_ROW: u32 = 10;
-        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
-            NUM_INSTANCES_PER_ROW as f32 * 0.5, 
-            0.0, 
-            NUM_INSTANCES_PER_ROW as f32 * 0.5);
+        // const NUM_INSTANCES_PER_ROW: u32 = 10;
+        // const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+        //     NUM_INSTANCES_PER_ROW as f32 * 0.5, 
+        //     0.0, 
+        //     NUM_INSTANCES_PER_ROW as f32 * 0.5);
 
-        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
-            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32} - INSTANCE_DISPLACEMENT;
+        // let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
+        //     (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+        //         let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32} - INSTANCE_DISPLACEMENT;
 
-                let rotation = if position.is_zero() {
-                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions ca effect scale if they're not created correctly
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                };
+        //         let rotation = if position.is_zero() {
+        //             // this is needed so an object at (0, 0, 0) won't get scaled to zero
+        //             // as Quaternions ca effect scale if they're not created correctly
+        //             cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+        //         } else {
+        //             cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+        //         };
 
-                Instance {
-                    position, rotation,
-                }
-            })
-        }).collect::<Vec<_>>();
+        //         Instance {
+        //             position, rotation,
+        //         }
+        //     })
+        // }).collect::<Vec<_>>();
+
+
+        let instances = vec![sun_instance, planet_instance];
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_data),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }
         );
 
@@ -573,6 +623,12 @@ impl State {
             sphere_vertices,
             sphere_indices,
             sphere_colors,
+            sphere_colors_sun,
+
+            planet_instance, 
+            sun_instance,
+
+            solar_system,
 
             window,
             surface,
@@ -583,6 +639,8 @@ impl State {
             render_pipeline,
             vertex_buffer,
             color_buffer,
+            color_buffer_sun,
+
             _num_vertices,
             index_buffer,
             num_indices,
@@ -618,8 +676,16 @@ impl State {
 
     fn update(&mut self, t: std::time::Duration, dt: std::time::Duration) {
 
+        // Solar System
+        self.solar_system.step(dt.as_secs_f32());
+        self.planet_instance.position = self.solar_system.get_planet_position();
+
+        self.instances = vec![self.sun_instance, self.planet_instance];
+        let instance_data = &self.instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        self.queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instance_data.as_slice()));
+
         // sphere
-        self.sphere.update(t, dt);
+        self.sphere.update(t, dt, self.sun_instance.position, self.planet_instance.position);
         self.sphere_colors = self.sphere.get_colors();
         self.queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&self.sphere_colors.as_slice()));
 
@@ -668,12 +734,18 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.color_buffer.slice(..));
-            render_pass.set_vertex_buffer(2, self.instance_buffer.slice(..));
-
+            render_pass.set_vertex_buffer(1, self.color_buffer_sun.slice(..));
+            
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
-            //render_pass.draw_indexed(0..3, 0, 0..self.instances.len() as u32);
+            
+            // sun
+            render_pass.set_vertex_buffer(2, self.instance_buffer.slice(..));
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1 as u32);
+
+            // planet
+            render_pass.set_vertex_buffer(1, self.color_buffer.slice(..));
+            render_pass.draw_indexed(0..self.num_indices, 0, 1..self.instances.len() as u32);
+
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

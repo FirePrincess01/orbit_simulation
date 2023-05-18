@@ -185,60 +185,29 @@ impl<const N: usize> Sphere<N> {
             }
         }
 
-        // let mut i = 0;
-        // while(i < vertices_size)
-        // {
-        //     let color = gradient.eval_rational(i, vertices_size);
-
-        //     colors[i] =   color.r as f32 / 255.0;
-        //     colors[i+1] = color.g as f32 / 255.0;
-        //     colors[i+2] = color.b as f32 / 255.0;
-
-        //     colors[i+3] = color.r as f32 / 255.0;
-        //     colors[i+4] = color.g as f32 / 255.0;
-        //     colors[i+5] = color.b as f32 / 255.0;
-
-        //     colors[i+6] = color.r as f32 / 255.0;
-        //     colors[i+7] = color.g as f32 / 255.0;
-        //     colors[i+8] = color.b as f32 / 255.0;
-
-        //     colors[i+9] =  color.r as f32 / 255.0;
-        //     colors[i+10] = color.g as f32 / 255.0;
-        //     colors[i+11] = color.b as f32 / 255.0;
-
-        //     i += 12;
-        // }
-
         colors
     }
 
-    pub fn update(&mut self, t: Duration, dt: Duration) 
+    pub fn update(&mut self, t: Duration, dt: Duration, sun_pos: Vec3, planet_pos: Vec3) 
     {
         let t = t.as_secs_f64();
         let dt = dt.as_secs_f32();
         
         // light
-        let rotation_speed = 1.0;
-        let radius = 100.0;
-        self.light.x = radius * f64::cos( rotation_speed * t) as f32;
-        self.light.y = radius * f64::sin( rotation_speed * t) as f32;
-        
+        // let rotation_speed = 1.0;
+        let light_vec =  sun_pos - planet_pos;
+        let light_normal = light_vec.normalize();
+        let distance = light_vec.length();
+
         // sphere
-        let light_intensity: f32 = 1000.0;
+        let light_intensity: f32 = 2000.0;
         let radiation_factor: f32 = 0.1;
 
         for j in 0..N {
             for i in 0..N {
-                let quad = &self.quads[j][i]; 
-
-                let light_dir = (self.light - quad.centroid).normalize();
-
-                // let dheat = light_dir.dot(quad.normal).min(0.0) * light_intensity * dt - (quad.heat * radiation_factor) * dt;
-
                 let quad = &mut self.quads[j][i]; 
-                // quad.heat = (quad.heat + dheat).min(0.0); 
-
-                quad.heat = light_dir.dot(quad.normal).max(0.0) * light_intensity;
+   
+                quad.heat = light_normal.dot(quad.normal).max(0.0) * light_intensity / distance;
 
                 let k = 0;
             }
